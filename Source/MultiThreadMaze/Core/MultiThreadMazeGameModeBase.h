@@ -7,7 +7,7 @@
 #include "../MazeThreads/MazeGraphThread.h"
 #include "MultiThreadMazeGameModeBase.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAllBlocksDoneSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAllSegmentsDoneSignature);
 
 UCLASS()
 class MULTITHREADMAZE_API AMultiThreadMazeGameModeBase : public AGameModeBase
@@ -15,11 +15,11 @@ class MULTITHREADMAZE_API AMultiThreadMazeGameModeBase : public AGameModeBase
 	GENERATED_BODY()
 	
 public:
-	FMazeTaskOnWorkDoneSignature MazeTaskOnWorkDone;
+	FOnMazeSegmentWorkDoneSignature OnMazeSegmentWorkDone;
 	FMazeWallShowSignature MazeWallShow;
 
 	UPROPERTY(BlueprintAssignable, Category = "Maze")
-	FOnAllBlocksDoneSignature OnAllBlocksDone;
+	FOnAllSegmentsDoneSignature OnAllSegmentsDone;
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Maze")
@@ -28,9 +28,9 @@ protected:
 private:
 	const float WallSize = 128.f;
 
-	TArray<AWall*> AllWalls;
-
-	int32 BlockCounts = 0;
+	// Счетчик сегментов лабиринта
+	// Используется для определения, что все сегменты закончены
+	int32 SegmentsAmount = 0;
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "Maze")
@@ -41,9 +41,6 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
-	int GetRandomInt(int32 min, int32 max);
-	FLinearColor GetRandomColor();
-
 	void ClearMazes();
 
 	void DrawMazeBorder(const int32 SideSize, FVector2D StartLocation);
@@ -51,8 +48,10 @@ private:
 	FVector2D GetMazeStartLocation(const int32 SideSize);
 
 	UFUNCTION()
-	void OnMazeBlockDone(FMazeBlockInfo Result);
+	void OnMazeSegmentDone(FMazeSegmentInfo Result);
 	UFUNCTION()
 	void OnMazeWallShow(FMazeWallDrawInfo Result);
 
+	int GetRandomInt(int32 min, int32 max);
+	FLinearColor GetRandomColor();
 };

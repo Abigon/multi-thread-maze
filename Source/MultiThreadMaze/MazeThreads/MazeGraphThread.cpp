@@ -4,54 +4,62 @@
 
 void FMazeGraphThread::DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
 {
-	GenerateMazeBlock(CurrentThread);
+	GenerateMazeSegment(CurrentThread);
 }
 
-void FMazeGraphThread::GenerateMazeBlock(ENamedThreads::Type CurrentThread)
+void FMazeGraphThread::GenerateMazeSegment(ENamedThreads::Type CurrentThread)
 {
 	WallsInfo.Empty();
 	ResultWallsInfo.Empty();
 
+	// Заполняем массив стен с ID
+	// Идентификаторы идут слева-направо, сверху-вниз
 	int32 CellID = 0;
-	for (int32 y = 0; y < SideSize; y++)
+	for (int32 y = 0; y < SegmentSideSize; y++)
 	{
-		bool bIsLastRow = y == (SideSize - 1);
-		for (int32 x = 0; x < SideSize; x++)
+		bool bIsLastRow = y == (SegmentSideSize - 1);
+		for (int32 x = 0; x < SegmentSideSize; x++)
 		{
-			if (x != (SideSize - 1))
+			if (x != (SegmentSideSize - 1))  // Не создаем крайнуюю правую стенку
 			{
-				auto NewWallX = FWallInfo(CellID, CellID + 1, x, y, false);
-				WallsInfo.Add(NewWallX);
+				//Парвая стенка: Текущий ID и следующий ID
+				WallsInfo.Add(FWallInfo(CellID, CellID + 1, x, y, false));
 			}
-			if (!bIsLastRow)
+			if (!bIsLastRow) // Не создаем крайнюю нижнюю стенку
 			{
-				auto NewWallY = FWallInfo(CellID, CellID + SideSize, x, y, true);
-				WallsInfo.Add(NewWallY);
+				//Нижняя стенка: Текущий ID и ID ячейки ниже
+				WallsInfo.Add(FWallInfo(CellID, CellID + SegmentSideSize, x, y, true));
 			}
 			CellID++;
 		}
 	}
 
+	// Цикл длится пока есть различные зоны в массиве стен
 	while (IsHasDifferentZone())
 	{
-		int32 WallNum = GetRandomInt(0, WallsInfo.Num() - 1);
-		if (WallsInfo[WallNum].OneSideID != WallsInfo[WallNum].OtherSideID)
+		int32 WallNum = GetRandomInt(0, WallsInfo.Num() - 1);  // Вибираем рандомную стену из массива
+		if (WallsInfo[WallNum].OneSideID != WallsInfo[WallNum].OtherSideID) 
 		{
+			// Если у стены ID разные, то меняем OtherSideID на OneSideID у всех стен с ID = OtherSideID и удаляем стену 
 			ChangeZone(WallsInfo[WallNum].OtherSideID, WallsInfo[WallNum].OneSideID);
 			auto a = WallsInfo[WallNum];
 			WallsInfo.RemoveAt(WallNum);
 		}
 		else
 		{
+			// Если ID у стены одинаковые, то добавляем стену в результирующий массив и удаляем из массива стен
 			auto a = WallsInfo[WallNum];
 			if (bIsShow)
 			{
+				// Если работаем в демо-режиме, то выдаем делегат, что надо спаунить стену
 				ShowWall(CurrentThread, a);
 			}
 			ResultWallsInfo.Add(WallsInfo[WallNum]);
 			WallsInfo.RemoveAt(WallNum);
 		}
 	}
+	// Если в демо-режиме, то показваем оставшиеся в массиве стены
+	// Если в нормальном режиме, то добавляем оставшиеся стены в резульирующий массив
 	if (bIsShow)
 	{
 		for (auto Wall : WallsInfo)
@@ -64,44 +72,55 @@ void FMazeGraphThread::GenerateMazeBlock(ENamedThreads::Type CurrentThread)
 		ResultWallsInfo.Append(WallsInfo);
 	}
 
+	// Если флаг требует создать граничные стены сегмента то создаем
 	if (SidesWallsFlag > 0)
 	{
-		const auto HoleX = GetRandomInt(0, SideSize - 1);
-		const auto HoleY = GetRandomInt(0, SideSize - 1);
-		for (int32 a = 0; a < SideSize; a++)
+		// Получаем рандомные проходы в нижней и правой границах
+		const auto HoleX = GetRandomInt(0, SegmentSideSize - 1);
+		const auto HoleY = GetRandomInt(0, SegmentSideSize - 1);
+		for (int32 a = 0; a < SegmentSideSize; a++)
 		{
+			// Создаем/показываем правые граничные стены с проходом
 			if (((SidesWallsFlag % 2) > 0) && (a != HoleX))
 			{
 				if (bIsShow)
 				{
-					ShowWall(CurrentThread, FWallInfo(0, 0, SideSize - 1, a, false));
+					ShowWall(CurrentThread, FWallInfo(0, 0, SegmentSideSize - 1, a, false));
 				}
 				else
 				{
-					ResultWallsInfo.Add(FWallInfo(0, 0, SideSize - 1, a, false));
+					ResultWallsInfo.Add(FWallInfo(0, 0, SegmentSideSize - 1, a, false));
 				}
 			}
+			// Создаем/показываем нижние граничные стены с проходом
 			if ((SidesWallsFlag > 1) && (a != HoleY))
 			{
 				if (bIsShow)
 				{
-					ShowWall(CurrentThread, FWallInfo(0, 0, a, SideSize - 1, true));
+					ShowWall(CurrentThread, FWallInfo(0, 0, a, SegmentSideSize - 1, true));
 				}
 				else
 				{
-					ResultWallsInfo.Add(FWallInfo(0, 0, a, SideSize - 1, true));
+					ResultWallsInfo.Add(FWallInfo(0, 0, a, SegmentSideSize - 1, true));
 				}
 			}
 		}
 	}
+
+	// Очищаяем массив стен для передачи
+	SegmentResult.WallsInfo.Empty();
+
+	// Если не демо-режим, то добавляем стены из результирующего массива в структуру для возврата
 	if (!bIsShow)
 	{
-		SimpleOutput.WallsInfo.Empty();
-		SimpleOutput.WallsInfo.Append(ResultWallsInfo);
+		SegmentResult.WallsInfo.Append(ResultWallsInfo);
 	}
-	TGraphTask<FTask_FinishMazeBlock>::CreateTask(NULL, CurrentThread).ConstructAndDispatchWhenReady(MazeTaskOnWorkDone, SimpleOutput);
+
+	// Сообщаем об окончании генерации сегмента
+	TGraphTask<FTask_FinishMazeBlock>::CreateTask(NULL, CurrentThread).ConstructAndDispatchWhenReady(OnMazeSegmentWorkDone, SegmentResult);
 }
 
+// Проверка на наличие стен с разными ID 
 bool FMazeGraphThread::IsHasDifferentZone()
 {
 	for (auto aaaa : WallsInfo)
@@ -111,6 +130,7 @@ bool FMazeGraphThread::IsHasDifferentZone()
 	return false;
 }
 
+// Замена ID у стен 
 void FMazeGraphThread::ChangeZone(int32 OldZone, int32 NewZone)
 {
 	for (int32 a = 0; a < WallsInfo.Num(); a++)
@@ -125,14 +145,10 @@ void FMazeGraphThread::ChangeZone(int32 OldZone, int32 NewZone)
 	}
 }
 
+// Сообщаем о необходимости показать стену в демо-режиме и делам паузу в потоке
 void FMazeGraphThread::ShowWall(ENamedThreads::Type CurrentThread, FWallInfo Wall)
 {
-	FMazeWallDrawInfo Res;
-	Res.x = Wall.WallX;
-	Res.y = Wall.WallY;
-	Res.bIsVertical = Wall.bIsVertical;
-	Res.StartLocation = SimpleOutput.StartLocation;
-	Res.Color = SimpleOutput.BlockColor;
+	FMazeWallDrawInfo Res = FMazeWallDrawInfo(Wall.WallX, Wall.WallY, Wall.bIsVertical, SegmentResult.StartLocation, SegmentResult.BlockColor);
 	TGraphTask<FTask_MazeWallShow>::CreateTask(NULL, CurrentThread).ConstructAndDispatchWhenReady(MazeWallShow, Res);
 	FPlatformProcess::Sleep(0.5f);
 }

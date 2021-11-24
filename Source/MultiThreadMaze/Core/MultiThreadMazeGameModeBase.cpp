@@ -3,12 +3,13 @@
 
 #include "MultiThreadMazeGameModeBase.h"
 #include "../Meshes/Wall.h"
+#include "Kismet/GameplayStatics.h"
 #include <random>
 
 void AMultiThreadMazeGameModeBase::BeginPlay()
 {
 	Super::BeginPlay();
-	MazeTaskOnWorkDone.BindUFunction(this, FName("OnMazeBlockDone"));
+	OnMazeSegmentWorkDone.BindUFunction(this, FName("OnMazeSegmentDone"));
 	MazeWallShow.BindUFunction(this, FName("OnMazeWallShow"));
 }
 
@@ -23,6 +24,7 @@ void AMultiThreadMazeGameModeBase::GenerateMazes(int32 BlockSize, int32 BlocksPe
 	ClearMazes();
 	const auto StartLocation = GetMazeStartLocation(BlockSize * BlocksPerSide);
 
+	//Build Maze's Border around all Blocks with Enter & Exit
 	DrawMazeBorder(BlockSize * BlocksPerSide, StartLocation);
 
 	FVector2D ShiftLocation;
@@ -31,50 +33,54 @@ void AMultiThreadMazeGameModeBase::GenerateMazes(int32 BlockSize, int32 BlocksPe
 		ShiftLocation.Y = StartLocation.Y + WallSize * y * BlockSize;
 		for (int32 x = 0; x < BlocksPerSide; x++)
 		{
+			// Флаг отображения внутренних стен между сегментами
+			// 1 - правая стена
+			// 2 - нижняя стена
+			// 3 - комбинация 1 и 2. Можно проверить побитно
 			int32 SidesFlag = 0;
 			if (x < BlocksPerSide - 1) SidesFlag += 1;
 			if (y < BlocksPerSide - 1) SidesFlag += 2;
 
+			// Расчет начального положения отображения сегмента
+			// Расчитывается в этом цикле, чтобы делать меньше расчетов
+			// Иначе можно вынести в функцию и там расчитывать для каждого сегмената на основе X и Y
 			ShiftLocation.X = StartLocation.X + WallSize * x * BlockSize;
 
-			FMazeBlockInfo NewMazeBlockInfo;
+			// Создаем / заполняем структуру информации о сегменте цветом сегмента и начальным положением 
+			FMazeSegmentInfo NewMazeBlockInfo;
 			NewMazeBlockInfo.BlockColor = GetRandomColor();
 			NewMazeBlockInfo.StartLocation = ShiftLocation;
-			TGraphTask<FMazeGraphThread>::CreateTask(nullptr,
-				ENamedThreads::AnyThread).ConstructAndDispatchWhenReady(MazeTaskOnWorkDone, MazeWallShow, NewMazeBlockInfo, BlockSize, SidesFlag, bIsShow);
 
-			BlockCounts++;
+			// Создаем задачу в новом потоке для генерации сегмента лабиринта
+			TGraphTask<FMazeGraphThread>::CreateTask(nullptr,
+				ENamedThreads::AnyThread).ConstructAndDispatchWhenReady(OnMazeSegmentWorkDone, MazeWallShow, NewMazeBlockInfo, BlockSize, SidesFlag, bIsShow);
+
+			SegmentsAmount++;
 		}
 	}
 }
 
-AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation, FLinearColor Color)
-{
-	const auto World = GetWorld();
-	if (!World || !WallClass) return nullptr;
-	
-	FVector SpawnLoc = bIsVertical ? FVector(StartLocation.X + x * 128, StartLocation.Y + y * 128 + 64, 6.4f) : FVector(StartLocation.X + x * 128 + 64, StartLocation.Y + y * 128, 6.4f);
-	FRotator SpawnRot = bIsVertical ? FRotator(0) : FRotator(0.f, 90.f, 0);
-
-	auto NewWallMesh = World->SpawnActor<AWall>(WallClass, SpawnLoc, SpawnRot, FActorSpawnParameters());
-	if (NewWallMesh)
-	{
-		NewWallMesh->SetColor(Color);
-		return NewWallMesh;
-	}
-	return nullptr;
-}
-
+// Удаляем все стены со сцены
 void AMultiThreadMazeGameModeBase::ClearMazes()
 {
-	BlockCounts = 0;
-	for (auto Wall : AllWalls)
+	SegmentsAmount = 0;
+	TArray<AActor*> TempWalls;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), WallClass, TempWalls);
+	for (auto Wall : TempWalls)
 	{
 		if (Wall) Wall->Destroy();
 	}
-	AllWalls.Empty();
 }
 
+// Получаем стартовое положение верхнего левого угла
+FVector2D AMultiThreadMazeGameModeBase::GetMazeStartLocation(const int32 SideSize)
+{
+	float X = -SideSize * WallSize / 2 + 64.f;
+	float Y = -SideSize * WallSize / 2 + 64.f;
+	return FVector2D(X, Y);
+}
+
+// Отрисовка общих границ лабиринта с входом и выходом
 void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2D StartLocation)
 {
 	const auto World = GetWorld();
@@ -82,6 +88,7 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 
 	TArray<AWall*> MazeWalls;
 
+	// Вертикальные стены
 	for (int32 x = 0; x < SideSize; x++)
 	{
 		FVector SpawnLocLeft = FVector(StartLocation.X + x * 128, StartLocation.Y - 64.f, 6.4f);
@@ -90,7 +97,7 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 		for (int32 a = 0; a < 2; a++)
 		{
 			if ((a == 0) && (x == 1)) continue; // skip for Maze's Enter
-			if ((a == 1) && (x == (SideSize-2))) continue; // skip for Maze's Exit
+			if ((a == 1) && (x == (SideSize - 2))) continue; // skip for Maze's Exit
 			auto NewWallMesh = World->SpawnActor<AWall>(WallClass, (a == 0) ? SpawnLocLeft : SpawnLocRight, SpawnRot, FActorSpawnParameters());
 			if (NewWallMesh)
 			{
@@ -100,6 +107,7 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 		}
 	}
 
+	// Горизонтальные стены
 	for (int32 y = 0; y < SideSize; y++)
 	{
 		FVector SpawnLocLeft = FVector(StartLocation.X - 64.f, StartLocation.X + y * 128, 6.4f);
@@ -115,41 +123,45 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 			}
 		}
 	}
-	AllWalls.Append(MazeWalls);
 }
 
-FVector2D AMultiThreadMazeGameModeBase::GetMazeStartLocation(const int32 SideSize)
-{
-	float X = -SideSize * WallSize / 2 + 64.f;
-	float Y = -SideSize * WallSize / 2 + 64.f;
-	return FVector2D(X, Y);
-}
-
-void AMultiThreadMazeGameModeBase::OnMazeBlockDone(FMazeBlockInfo Result)
+// Окончание генерации сегмента
+// Если был не демо-режим, то спауним стены
+// Проверяем на окончание генерации всех сегментов
+void AMultiThreadMazeGameModeBase::OnMazeSegmentDone(FMazeSegmentInfo Result)
 {
 	for (auto a : Result.WallsInfo)
 	{
-		const auto Wall = SpawnWall(a.WallX, a.WallY, a.bIsVertical, Result.StartLocation, Result.BlockColor);
-		if (Wall)
-		{
-			AllWalls.Add(Wall);
-		}
+		SpawnWall(a.WallX, a.WallY, a.bIsVertical, Result.StartLocation, Result.BlockColor);
 	}
-	BlockCounts--;
-	if (BlockCounts <= 0)
+	if (--SegmentsAmount <= 0)
 	{
-		OnAllBlocksDone.Broadcast();
-		UE_LOG(LogTemp, Warning, TEXT("All Blocks Complite"));
+		OnAllSegmentsDone.Broadcast();
 	}
 }
 
+// Отображение стены в демо режиме
 void AMultiThreadMazeGameModeBase::OnMazeWallShow(FMazeWallDrawInfo Result)
 {
-	const auto Wall = SpawnWall(Result.x, Result.y, Result.bIsVertical, Result.StartLocation, Result.Color);
-	if (Wall)
+	SpawnWall(Result.x, Result.y, Result.bIsVertical, Result.StartLocation, Result.Color);
+}
+
+// Спауним стену 
+AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation, FLinearColor Color)
+{
+	const auto World = GetWorld();
+	if (!World || !WallClass) return nullptr;
+	
+	FVector SpawnLoc = bIsVertical ? FVector(StartLocation.X + x * 128, StartLocation.Y + y * 128 + 64, 6.4f) : FVector(StartLocation.X + x * 128 + 64, StartLocation.Y + y * 128, 6.4f);
+	FRotator SpawnRot = bIsVertical ? FRotator(0) : FRotator(0.f, 90.f, 0);
+
+	auto NewWallMesh = World->SpawnActor<AWall>(WallClass, SpawnLoc, SpawnRot, FActorSpawnParameters());
+	if (NewWallMesh)
 	{
-		AllWalls.Add(Wall);
+		NewWallMesh->SetColor(Color);
+		return NewWallMesh;
 	}
+	return nullptr;
 }
 
 int AMultiThreadMazeGameModeBase::GetRandomInt(int32 min, int32 max)

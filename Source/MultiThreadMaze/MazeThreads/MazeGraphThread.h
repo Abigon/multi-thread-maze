@@ -24,11 +24,12 @@ struct FMazeWallDrawInfo
 	bool bIsVertical;
 	FVector2D StartLocation;
 	FLinearColor Color;
+	FMazeWallDrawInfo(int32 inX = -1, int32 inY = -1, bool bV = false, FVector2D inSL= FVector2D(0), FLinearColor inColor = FLinearColor::Black)
+		: x(inX), y(inY), bIsVertical(bV), StartLocation(inSL), Color(inColor) {};
 };
 
-
 USTRUCT()
-struct FMazeBlockInfo
+struct FMazeSegmentInfo
 {
 	GENERATED_USTRUCT_BODY()
 
@@ -37,28 +38,23 @@ struct FMazeBlockInfo
 	FVector2D StartLocation;
 };
 
-DECLARE_DELEGATE_OneParam(FMazeTaskOnWorkDoneSignature, FMazeBlockInfo OutputResult)
-DECLARE_DELEGATE_OneParam(FMazeWallShowSignature, FMazeWallDrawInfo OutputResult)
+DECLARE_DELEGATE_OneParam(FOnMazeSegmentWorkDoneSignature, FMazeSegmentInfo Result)
+DECLARE_DELEGATE_OneParam(FMazeWallShowSignature, FMazeWallDrawInfo Result)
 
+
+// Task for broadcast delegate when the Segment is finished 
 class FTask_FinishMazeBlock
 {
-	FMazeTaskOnWorkDoneSignature MazeTaskOnWorkDone;
-	FMazeBlockInfo Result;
+	FOnMazeSegmentWorkDoneSignature OnMazeSegmentWorkDone;
+	FMazeSegmentInfo Result;
 
 public:
-	FTask_FinishMazeBlock(FMazeTaskOnWorkDoneSignature InTaskDelegate_OnWorkDone, FMazeBlockInfo InResult)
-		: MazeTaskOnWorkDone(InTaskDelegate_OnWorkDone), Result(InResult)
-	{
-
-	}
-	~FTask_FinishMazeBlock()
-	{
-
-	}
-	FORCEINLINE TStatId GetStatId() const
-	{
-		RETURN_QUICK_DECLARE_CYCLE_STAT(FTask_FinishMazeBlock, STATGROUP_TaskGraphTasks);
-	}
+	FTask_FinishMazeBlock(FOnMazeSegmentWorkDoneSignature InTaskDelegate_OnWorkDone, FMazeSegmentInfo InResult)
+		: OnMazeSegmentWorkDone(InTaskDelegate_OnWorkDone), Result(InResult) { }
+	
+	~FTask_FinishMazeBlock() { }
+	
+	FORCEINLINE TStatId GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT(FTask_FinishMazeBlock, STATGROUP_TaskGraphTasks); }
 
 	static ENamedThreads::Type GetDesiredThread()
 	{
@@ -71,13 +67,14 @@ public:
 	void DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
 	{
 		check(IsInGameThread());
-		if (MazeTaskOnWorkDone.IsBound())
+		if (OnMazeSegmentWorkDone.IsBound())
 		{
-			MazeTaskOnWorkDone.Execute(Result);
+			OnMazeSegmentWorkDone.Execute(Result);
 		}
 	}
 };
 
+// Task for broadcast delegate when to show €ÛÔ¸ÛÚÂ Wall 
 class FTask_MazeWallShow
 {
 	FMazeWallShowSignature MazeWallShow;
@@ -85,18 +82,11 @@ class FTask_MazeWallShow
 
 public:
 	FTask_MazeWallShow(FMazeWallShowSignature InTaskDelegate_OnWallShowDone, FMazeWallDrawInfo InResult)
-		: MazeWallShow(InTaskDelegate_OnWallShowDone), Result(InResult)
-	{
+		: MazeWallShow(InTaskDelegate_OnWallShowDone), Result(InResult) { }
 
-	}
-	~FTask_MazeWallShow()
-	{
+	~FTask_MazeWallShow() {  }
 
-	}
-	FORCEINLINE TStatId GetStatId() const
-	{
-		RETURN_QUICK_DECLARE_CYCLE_STAT(FTask_MazeWallShow, STATGROUP_TaskGraphTasks);
-	}
+	FORCEINLINE TStatId GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT(FTask_MazeWallShow, STATGROUP_TaskGraphTasks); }
 
 	static ENamedThreads::Type GetDesiredThread()
 	{
@@ -119,11 +109,11 @@ public:
 
 class FMazeGraphThread
 {
-	FMazeTaskOnWorkDoneSignature MazeTaskOnWorkDone;
+	FOnMazeSegmentWorkDoneSignature OnMazeSegmentWorkDone;
 	FMazeWallShowSignature MazeWallShow;
 
-	FMazeBlockInfo SimpleOutput;
-	int32 SideSize;
+	FMazeSegmentInfo SegmentResult;
+	int32 SegmentSideSize;
 	int32 SidesWallsFlag;
 	bool bIsShow;
 
@@ -131,24 +121,24 @@ class FMazeGraphThread
 	TArray<FWallInfo> ResultWallsInfo;
 	
 public:
-	FMazeGraphThread(FMazeTaskOnWorkDoneSignature InTaskDelegate_OnWorkDone, FMazeWallShowSignature InTaskDelegate_OnWallShowDone, FMazeBlockInfo InSimpleOutput, int32 InSideSize, int32 InWallsFlag, bool InIsShow)
-		: MazeTaskOnWorkDone(InTaskDelegate_OnWorkDone),
+	FMazeGraphThread(FOnMazeSegmentWorkDoneSignature InTaskDelegate_OnWorkDone, FMazeWallShowSignature InTaskDelegate_OnWallShowDone, 
+		FMazeSegmentInfo InSimpleOutput, int32 InSideSize, int32 InWallsFlag, bool InIsShow)
+		: OnMazeSegmentWorkDone(InTaskDelegate_OnWorkDone),
 		MazeWallShow(InTaskDelegate_OnWallShowDone),
-		SimpleOutput(InSimpleOutput),
-		SideSize(InSideSize),
+		SegmentResult(InSimpleOutput),
+		SegmentSideSize(InSideSize),
 		SidesWallsFlag(InWallsFlag),
 		bIsShow(InIsShow)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("FMazeGraphThread Constructor"));
 	}
+	
 	~FMazeGraphThread()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("FMazeGraphThread Destructor"));
 	}
-	FORCEINLINE TStatId GetStatId() const
-	{
-		RETURN_QUICK_DECLARE_CYCLE_STAT(FMazeGraphThread, STATGROUP_TaskGraphTasks);
-	}
+
+	FORCEINLINE TStatId GetStatId() const { RETURN_QUICK_DECLARE_CYCLE_STAT(FMazeGraphThread, STATGROUP_TaskGraphTasks); }
 
 	static ENamedThreads::Type GetDesiredThread()
 	{
@@ -169,10 +159,9 @@ public:
 
 private:
 
-	void GenerateMazeBlock(ENamedThreads::Type CurrentThread);
+	void GenerateMazeSegment(ENamedThreads::Type CurrentThread);
 	bool IsHasDifferentZone();
 	void ChangeZone(int32 OldZone, int32 NewZone);
-	int GetRandomInt(int32 min, int32 max);
 	void ShowWall(ENamedThreads::Type CurrentThread, FWallInfo Wall);
-
+	int GetRandomInt(int32 min, int32 max);
 };
