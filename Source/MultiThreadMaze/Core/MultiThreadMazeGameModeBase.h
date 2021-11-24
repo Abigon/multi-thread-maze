@@ -4,28 +4,23 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "../MazeThreads/MazeGraphThread.h"
 #include "MultiThreadMazeGameModeBase.generated.h"
 
-
-USTRUCT()
-struct FWallInfo
-{
-	GENERATED_USTRUCT_BODY()
-
-	int32 OneSideID = -1;
-	int32 OtherSideID = -1;
-	int32 WallX = -1;
-	int32 WallY = -1;
-	bool bIsVertical = false;
-	FWallInfo(int32 id1 = -1, int32 id2 = -1, int32 x =-1, int32 y = -1, bool bV = false)
-		: OneSideID(id1), OtherSideID(id2), WallX(x), WallY(y), bIsVertical(bV) {};
-};
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAllBlocksDoneSignature);
 
 UCLASS()
 class MULTITHREADMAZE_API AMultiThreadMazeGameModeBase : public AGameModeBase
 {
 	GENERATED_BODY()
 	
+public:
+	FMazeTaskOnWorkDoneSignature MazeTaskOnWorkDone;
+	FMazeWallShowSignature MazeWallShow;
+
+	UPROPERTY(BlueprintAssignable, Category = "Maze")
+	FOnAllBlocksDoneSignature OnAllBlocksDone;
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Maze")
 	TSubclassOf<class AWall> WallClass;
@@ -35,8 +30,7 @@ private:
 
 	TArray<AWall*> AllWalls;
 
-	TArray<FWallInfo> WallsInfo;
-	TArray<FWallInfo> ResultWallsInfo;
+	int32 BlockCounts = 0;
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "Maze")
@@ -50,17 +44,15 @@ private:
 	int GetRandomInt(int32 min, int32 max);
 	FLinearColor GetRandomColor();
 
-	void GenerateMazeBlock(const int32 SideSize, bool bIsShow, FVector2D StartLocation, int32 SidesWallsFlag);
-
 	void ClearMazes();
 
 	void DrawMazeBorder(const int32 SideSize, FVector2D StartLocation);
-
-	bool IsHasDifferentZone();
-	void ChangeZone(int32 OldZone, int32 NewZone);
-
-	AWall* SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation);
-
+	AWall* SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation, FLinearColor Color);
 	FVector2D GetMazeStartLocation(const int32 SideSize);
+
+	UFUNCTION()
+	void OnMazeBlockDone(FMazeBlockInfo Result);
+	UFUNCTION()
+	void OnMazeWallShow(FMazeWallDrawInfo Result);
 
 };

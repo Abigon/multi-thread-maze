@@ -8,7 +8,8 @@
 void AMultiThreadMazeGameModeBase::BeginPlay()
 {
 	Super::BeginPlay();
-
+	MazeTaskOnWorkDone.BindUFunction(this, FName("OnMazeBlockDone"));
+	MazeWallShow.BindUFunction(this, FName("OnMazeWallShow"));
 }
 
 void AMultiThreadMazeGameModeBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -35,85 +36,19 @@ void AMultiThreadMazeGameModeBase::GenerateMazes(int32 BlockSize, int32 BlocksPe
 			if (y < BlocksPerSide - 1) SidesFlag += 2;
 
 			ShiftLocation.X = StartLocation.X + WallSize * x * BlockSize;
-			GenerateMazeBlock(BlockSize, bIsShow, ShiftLocation, SidesFlag);
+
+			FMazeBlockInfo NewMazeBlockInfo;
+			NewMazeBlockInfo.BlockColor = GetRandomColor();
+			NewMazeBlockInfo.StartLocation = ShiftLocation;
+			TGraphTask<FMazeGraphThread>::CreateTask(nullptr,
+				ENamedThreads::AnyThread).ConstructAndDispatchWhenReady(MazeTaskOnWorkDone, MazeWallShow, NewMazeBlockInfo, BlockSize, SidesFlag, bIsShow);
+
+			BlockCounts++;
 		}
 	}
 }
 
-void AMultiThreadMazeGameModeBase::GenerateMazeBlock(const int32 SideSize, bool bIsShow, FVector2D StartLocation, int32 SidesWallsFlag)
-{
-	TArray<AWall*> MazeWalls;
-
-	WallsInfo.Empty();
-	ResultWallsInfo.Empty();
-
-	int32 CellID = 0;
-	for (int32 y = 0; y < SideSize; y++)
-	{
-		bool bIsLastRow = y == (SideSize - 1);
-		for (int32 x = 0; x < SideSize; x++)
-		{
-			if (x != (SideSize - 1))
-			{
-				auto NewWallX = FWallInfo(CellID, CellID + 1, x, y, false);
-				WallsInfo.Add(NewWallX);
-			}
-			if (!bIsLastRow)
-			{
-				auto NewWallY = FWallInfo(CellID, CellID + SideSize, x, y, true);
-				WallsInfo.Add(NewWallY);
-			}
-			CellID++;
-		}
-	}
-
-	while (IsHasDifferentZone())
-	{
-		int32 WallNum = GetRandomInt(0, WallsInfo.Num()-1);
-		if (WallsInfo[WallNum].OneSideID != WallsInfo[WallNum].OtherSideID)
-		{
-			ChangeZone(WallsInfo[WallNum].OtherSideID, WallsInfo[WallNum].OneSideID);
-			auto a = WallsInfo[WallNum];
-			WallsInfo.RemoveAt(WallNum);
-		}
-		else
-		{
-			auto a = WallsInfo[WallNum];
-			ResultWallsInfo.Add(WallsInfo[WallNum]);
-			WallsInfo.RemoveAt(WallNum);
-		}
-	}
-	ResultWallsInfo.Append(WallsInfo);
-
-	if (SidesWallsFlag > 0)
-	{
-		const auto HoleX = GetRandomInt(0, SideSize - 1);
-		const auto HoleY = GetRandomInt(0, SideSize - 1);
-		for (int32 a = 0; a < SideSize; a++)
-		{
-			if (((SidesWallsFlag % 2) > 0) && (a != HoleX))
-			{
-				ResultWallsInfo.Add(FWallInfo(0, 0, SideSize - 1, a, false));
-			}
-			if ((SidesWallsFlag > 1) && (a != HoleY))
-			{
-				ResultWallsInfo.Add(FWallInfo(0, 0, a, SideSize - 1, true));
-			}
-		}
-	}
-
-	for (auto a : ResultWallsInfo)
-	{
-		const auto Wall = SpawnWall(a.WallX, a.WallY, a.bIsVertical, StartLocation);
-		if (Wall)
-		{
-			MazeWalls.Add(Wall);
-		}
-	}
-	AllWalls.Append(MazeWalls);
-}
-
-AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation)
+AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertical, FVector2D StartLocation, FLinearColor Color)
 {
 	const auto World = GetWorld();
 	if (!World || !WallClass) return nullptr;
@@ -124,37 +59,15 @@ AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertica
 	auto NewWallMesh = World->SpawnActor<AWall>(WallClass, SpawnLoc, SpawnRot, FActorSpawnParameters());
 	if (NewWallMesh)
 	{
-		NewWallMesh->SetColor(FLinearColor::Red);
+		NewWallMesh->SetColor(Color);
 		return NewWallMesh;
 	}
 	return nullptr;
 }
 
-bool AMultiThreadMazeGameModeBase::IsHasDifferentZone()
-{
-	for (auto aaaa : WallsInfo)
-	{
-		if (aaaa.OneSideID != aaaa.OtherSideID) return true;
-	}
-	return false;
-}
-
-void AMultiThreadMazeGameModeBase::ChangeZone(int32 OldZone, int32 NewZone)
-{
-	for (int32 a=0; a < WallsInfo.Num(); a++)
-	{
-		if (WallsInfo[a].OneSideID == OldZone) WallsInfo[a].OneSideID = NewZone;
-		if (WallsInfo[a].OtherSideID == OldZone) WallsInfo[a].OtherSideID = NewZone;
-	}
-	for (int32 a=0; a < ResultWallsInfo.Num(); a++)
-	{
-		if (ResultWallsInfo[a].OneSideID == OldZone) ResultWallsInfo[a].OneSideID = NewZone;
-		if (ResultWallsInfo[a].OtherSideID == OldZone) ResultWallsInfo[a].OtherSideID = NewZone;
-	}
-}
-
 void AMultiThreadMazeGameModeBase::ClearMazes()
 {
+	BlockCounts = 0;
 	for (auto Wall : AllWalls)
 	{
 		if (Wall) Wall->Destroy();
@@ -205,6 +118,40 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 	AllWalls.Append(MazeWalls);
 }
 
+FVector2D AMultiThreadMazeGameModeBase::GetMazeStartLocation(const int32 SideSize)
+{
+	float X = -SideSize * WallSize / 2 + 64.f;
+	float Y = -SideSize * WallSize / 2 + 64.f;
+	return FVector2D(X, Y);
+}
+
+void AMultiThreadMazeGameModeBase::OnMazeBlockDone(FMazeBlockInfo Result)
+{
+	for (auto a : Result.WallsInfo)
+	{
+		const auto Wall = SpawnWall(a.WallX, a.WallY, a.bIsVertical, Result.StartLocation, Result.BlockColor);
+		if (Wall)
+		{
+			AllWalls.Add(Wall);
+		}
+	}
+	BlockCounts--;
+	if (BlockCounts <= 0)
+	{
+		OnAllBlocksDone.Broadcast();
+		UE_LOG(LogTemp, Warning, TEXT("All Blocks Complite"));
+	}
+}
+
+void AMultiThreadMazeGameModeBase::OnMazeWallShow(FMazeWallDrawInfo Result)
+{
+	const auto Wall = SpawnWall(Result.x, Result.y, Result.bIsVertical, Result.StartLocation, Result.Color);
+	if (Wall)
+	{
+		AllWalls.Add(Wall);
+	}
+}
+
 int AMultiThreadMazeGameModeBase::GetRandomInt(int32 min, int32 max)
 {
 	std::random_device rd;
@@ -219,11 +166,4 @@ FLinearColor AMultiThreadMazeGameModeBase::GetRandomColor()
 	float G = GetRandomInt(0, 255) / 1000.f;
 	float B = GetRandomInt(0, 255) / 1000.f;
 	return FLinearColor::FLinearColor(R, G, B, 1.f);
-}
-
-FVector2D AMultiThreadMazeGameModeBase::GetMazeStartLocation(const int32 SideSize)
-{
-	float X = -SideSize * WallSize / 2 + 64.f;
-	float Y = -SideSize * WallSize / 2 + 64.f;
-	return FVector2D(X, Y);
 }
