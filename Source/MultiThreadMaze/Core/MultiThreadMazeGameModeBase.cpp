@@ -75,8 +75,8 @@ void AMultiThreadMazeGameModeBase::ClearMazes()
 // Получаем стартовое положение верхнего левого угла
 FVector2D AMultiThreadMazeGameModeBase::GetMazeStartLocation(const int32 SideSize)
 {
-	float X = -SideSize * WallSize / 2 + 64.f;
-	float Y = -SideSize * WallSize / 2 + 64.f;
+	float X = -SideSize * WallSize / 2 + HalfWallSize;
+	float Y = -SideSize * WallSize / 2 + HalfWallSize;
 	return FVector2D(X, Y);
 }
 
@@ -91,8 +91,8 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 	// Вертикальные стены
 	for (int32 x = 0; x < SideSize; x++)
 	{
-		FVector SpawnLocLeft = FVector(StartLocation.X + x * 128, StartLocation.Y - 64.f, 6.4f);
-		FVector SpawnLocRight = FVector(StartLocation.X + x * 128, StartLocation.Y + SideSize * 128 - 64.f, 6.4f);
+		FVector SpawnLocLeft = FVector(StartLocation.X + x * WallSize, StartLocation.Y - HalfWallSize, 6.4f);
+		FVector SpawnLocRight = FVector(StartLocation.X + x * WallSize, StartLocation.Y + SideSize * WallSize - HalfWallSize, 6.4f);
 		FRotator SpawnRot = FRotator(0);
 		for (int32 a = 0; a < 2; a++)
 		{
@@ -110,8 +110,8 @@ void AMultiThreadMazeGameModeBase::DrawMazeBorder(const int32 SideSize, FVector2
 	// Горизонтальные стены
 	for (int32 y = 0; y < SideSize; y++)
 	{
-		FVector SpawnLocLeft = FVector(StartLocation.X - 64.f, StartLocation.X + y * 128, 6.4f);
-		FVector SpawnLocRight = FVector(StartLocation.X + SideSize * 128 - 64.f, StartLocation.X + y * 128, 6.4f);
+		FVector SpawnLocLeft = FVector(StartLocation.X - HalfWallSize, StartLocation.X + y * WallSize, 6.4f);
+		FVector SpawnLocRight = FVector(StartLocation.X + SideSize * WallSize - HalfWallSize, StartLocation.X + y * WallSize, 6.4f);
 		FRotator SpawnRot = FRotator(0.f, 90.f, 0);
 		for (int32 a = 0; a < 2; a++)
 		{
@@ -152,7 +152,7 @@ AWall* AMultiThreadMazeGameModeBase::SpawnWall(int32 x, int32 y, bool bIsVertica
 	const auto World = GetWorld();
 	if (!World || !WallClass) return nullptr;
 	
-	FVector SpawnLoc = bIsVertical ? FVector(StartLocation.X + x * 128, StartLocation.Y + y * 128 + 64, 6.4f) : FVector(StartLocation.X + x * 128 + 64, StartLocation.Y + y * 128, 6.4f);
+	FVector SpawnLoc = bIsVertical ? FVector(StartLocation.X + x * WallSize, StartLocation.Y + (y * WallSize) + HalfWallSize, 6.4f) : FVector(StartLocation.X + x * WallSize + HalfWallSize, StartLocation.Y + y * WallSize, 6.4f);
 	FRotator SpawnRot = bIsVertical ? FRotator(0) : FRotator(0.f, 90.f, 0);
 
 	auto NewWallMesh = World->SpawnActor<AWall>(WallClass, SpawnLoc, SpawnRot, FActorSpawnParameters());

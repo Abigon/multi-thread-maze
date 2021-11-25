@@ -27,6 +27,7 @@ protected:
 
 private:
 	const float WallSize = 128.f;
+	const float HalfWallSize = WallSize / 2.f;
 
 	// Счетчик сегментов лабиринта
 	// Используется для определения, что все сегменты закончены
